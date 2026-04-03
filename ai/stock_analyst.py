@@ -1,0 +1,193 @@
+"""GPT + Gemini 기반 종목 선정 & 분석 모듈
+
+GPT-4가 1차 종목 선정 및 분석을 수행하고,
+Gemini가 교차 검증 및 보완 의견을 제시합니다.
+"""
+
+import json
+import openai
+import google.generativeai as genai
+from loguru import logger
+from config.settings import ai_settings
+
+
+GPT_ANALYST_PROMPT = """당신은 한국 주식시장 전문 데이트레이딩 애널리스트입니다.
+로스 카메론(Ross Cameron)의 모멘텀 전략을 기반으로 종목을 분석합니다.
+
+## 분석 기준
+1. 갭업 강도와 원인 (뉴스, 공시, 테마)
+2. 거래량 폭증 여부 (평소 대비)
+3. 차트 패턴 (지지/저항, 캔들 패턴)
+4. 시가총액과 유동주식수 (소형주 선호)
+5. 당일 모멘텀 지속 가능성
+
+## 응답 형식 (JSON)
+{
+  "selected_stocks": [
+    {
+      "stock_code": "종목코드",
+      "stock_name": "종목명",
+      "score": 0~100,
+      "reason": "선정 이유 (3~5문장)",
+      "entry_strategy": "진입 전략",
+      "risk_factors": "위험 요소",
+      "target_return": "목표 수익률"
+    }
+  ],
+  "market_overview": "오늘 시장 전반 분석 (3~5문장)",
+  "trading_plan": "오늘의 매매 전략 요약"
+}
+"""
+
+GEMINI_VALIDATOR_PROMPT = """당신은 한국 주식시장 리스크 관리 전문가입니다.
+GPT가 선정한 종목에 대해 교차 검증을 수행합니다.
+
+## 검증 기준
+1. 과열 여부 (급등 후 급락 위험)
+2. 펀더멘탈 리스크 (재무 악화, 관리종목 등)
+3. 수급 분석 (외국인/기관 동향)
+4. 테마/섹터 모멘텀 지속 가능성
+5. 기술적 과매수/과매도
+
+## 응답 형식 (JSON)
+{
+  "validations": [
+    {
+      "stock_code": "종목코드",
+      "stock_name": "종목명",
+      "approval": true/false,
+      "risk_level": "LOW/MEDIUM/HIGH/VERY_HIGH",
+      "concerns": "우려 사항",
+      "suggestion": "수정 제안"
+    }
+  ],
+  "overall_risk": "전체 리스크 평가",
+  "additional_recommendations": "추가 권고사항"
+}
+"""
+
+
+class AIStockAnalyst:
+    """GPT + Gemini 듀얼 AI 종목 분석"""
+
+    def __init__(self):
+        self.openai_client = openai.OpenAI(api_key=ai_settings.openai_api_key)
+        genai.configure(api_key=ai_settings.google_api_key)
+        self.gemini_model = genai.GenerativeModel("gemini-2.0-flash")
+
+    def analyze_candidates(self, scanner_summary: str,
+                           market_data: dict = None) -> dict:
+        """종목 분석 파이프라인: GPT 1차 분석 → Gemini 교차 검증"""
+        # Step 1: GPT 1차 분석
+        gpt_result = self._gpt_analyze(scanner_summary, market_data)
+
+        # Step 2: Gemini 교차 검증
+        gemini_result = self._gemini_validate(gpt_result, scanner_summary)
+
+        # Step 3: 결과 통합
+        combined = self._combine_results(gpt_result, gemini_result)
+
+        logger.info(
+            f"AI 종목 분석 완료: "
+            f"{len(combined.get('final_picks', []))}개 최종 선정"
+        )
+        return combined
+
+    def _gpt_analyze(self, scanner_summary: str,
+                     market_data: dict = None) -> dict:
+        """GPT-4 1차 종목 분석"""
+        user_prompt = f"""## 오늘의 갭업 스캐너 결과
+{scanner_summary}
+
+## 추가 시장 데이터
+{json.dumps(market_data or {}, ensure_ascii=False, indent=2)}
+
+위 종목들을 로스 카메론 전략 기준으로 분석하고,
+매매 가치가 높은 상위 종목을 선정해주세요.
+"""
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": GPT_ANALYST_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=2048,
+                temperature=0.3,
+            )
+            text = response.choices[0].message.content
+            result = self._parse_json(text)
+            logger.info(f"GPT 분석 완료: {len(result.get('selected_stocks', []))}개 종목 선정")
+            return result
+        except Exception as e:
+            logger.error(f"GPT 분석 실패: {e}")
+            return {"selected_stocks": [], "market_overview": f"분석 실패: {e}"}
+
+    def _gemini_validate(self, gpt_result: dict,
+                         scanner_summary: str) -> dict:
+        """Gemini 교차 검증"""
+        prompt = f"""{GEMINI_VALIDATOR_PROMPT}
+
+## GPT가 선정한 종목
+{json.dumps(gpt_result.get('selected_stocks', []), ensure_ascii=False, indent=2)}
+
+## 원본 스캐너 데이터
+{scanner_summary}
+
+위 종목들에 대해 교차 검증을 수행해주세요.
+"""
+        try:
+            response = self.gemini_model.generate_content(prompt)
+            result = self._parse_json(response.text)
+            logger.info("Gemini 교차 검증 완료")
+            return result
+        except Exception as e:
+            logger.error(f"Gemini 검증 실패: {e}")
+            return {"validations": [], "overall_risk": f"검증 실패: {e}"}
+
+    def _combine_results(self, gpt_result: dict, gemini_result: dict) -> dict:
+        """GPT + Gemini 결과 통합"""
+        final_picks = []
+        validations = {
+            v["stock_code"]: v
+            for v in gemini_result.get("validations", [])
+        }
+
+        for stock in gpt_result.get("selected_stocks", []):
+            code = stock.get("stock_code", "")
+            validation = validations.get(code, {})
+
+            # Gemini가 승인하고 리스크가 VERY_HIGH가 아닌 종목만
+            is_approved = validation.get("approval", True)
+            risk_level = validation.get("risk_level", "MEDIUM")
+
+            if is_approved and risk_level != "VERY_HIGH":
+                stock["gemini_validation"] = validation
+                stock["final_risk"] = risk_level
+                final_picks.append(stock)
+
+        # 점수순 정렬
+        final_picks.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+        return {
+            "final_picks": final_picks,
+            "gpt_analysis": gpt_result,
+            "gemini_validation": gemini_result,
+            "market_overview": gpt_result.get("market_overview", ""),
+            "overall_risk": gemini_result.get("overall_risk", ""),
+            "trading_plan": gpt_result.get("trading_plan", ""),
+        }
+
+    def _parse_json(self, text: str) -> dict:
+        """AI 응답에서 JSON 추출"""
+        text = text.strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            logger.warning("JSON 파싱 실패, 빈 결과 반환")
+            return {}

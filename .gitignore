@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+logs/*.log
+reports/daily/*.json
+reports/daily/*.html
+.streamlit/secrets.toml
+venv/
+.venv/
+*.egg-info/
+dist/
+build/

@@ -1,0 +1,107 @@
+# AI 모멘텀 트레이딩 시스템
+
+한국투자증권 API + 로스 카메론 모멘텀 데이 트레이딩 전략 + 트리플 AI 자동매매 시스템
+
+## 아키텍처
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Main Trading Loop                     │
+├───────────┬──────────────┬──────────────┬───────────────┤
+│  Scanner  │   Strategy   │  AI Engine   │   Dashboard   │
+│ (갭업탐색) │ (Ross Cameron)│ (매매/분석)   │ (실시간 뷰)   │
+├───────────┼──────────────┼──────────────┼───────────────┤
+│           │              │ Claude Opus  │  Streamlit    │
+│  KIS API  │  VWAP/EMA    │ (매매 판단)   │  + Plotly     │
+│ (시세/주문) │  ATR/캔들     │ GPT-4o       │              │
+│           │              │ (종목 선정)   │              │
+│           │              │ Gemini 2.0   │              │
+│           │              │ (교차 검증)   │              │
+└───────────┴──────────────┴──────────────┴───────────────┘
+```
+
+## AI 역할 분담
+
+| AI | 역할 | 모델 |
+|---|---|---|
+| **Claude** | 매수/매도 최종 판단 (추론력 최강) | claude-opus-4-6 |
+| **GPT** | 종목 선정 & 일일 리포트 작성 | gpt-4o |
+| **Gemini** | 교차 검증 & 리스크 평가 | gemini-2.0-flash |
+
+## 로스 카메론 전략 핵심
+
+1. **갭업 종목 선별**: 전일 대비 4%+ 갭업, 거래량 2배+ 급증, 소형주
+2. **VWAP 위 진입**: VWAP + 9EMA 위에서만 롱 진입
+3. **핵심 시간대 집중**: 09:00~10:30 (첫 1.5시간)
+4. **엄격한 리스크 관리**: 손절 -2%, 익절 +4%, 트레일링 스탑 -1.5%
+5. **보상/위험 비율**: 최소 2:1
+
+## 설치 & 실행
+
+```bash
+# 1. 의존성 설치
+pip install -r requirements.txt
+
+# 2. 환경변수 설정
+cp .env.example .env
+# .env 파일에 API 키 입력
+
+# 3. 자동 매매 실행
+python main.py
+
+# 4. 스캔만 (매매 X)
+python main.py --scan-only
+
+# 5. 실시간 대시보드 (별도 터미널)
+streamlit run dashboard/app.py
+```
+
+## 환경 변수
+
+`.env` 파일에 아래 키 설정 필요:
+
+- `KIS_APP_KEY` / `KIS_APP_SECRET`: 한국투자증권 API 키
+- `KIS_ACCOUNT_NO`: 계좌번호 (형식: 00000000-00)
+- `KIS_ENVIRONMENT`: `VIRTUAL` (모의투자) 또는 `REAL` (실전)
+- `ANTHROPIC_API_KEY`: Claude API 키
+- `OPENAI_API_KEY`: OpenAI API 키
+- `GOOGLE_API_KEY`: Google Gemini API 키
+
+## 프로젝트 구조
+
+```
+trading-auto/
+├── main.py                 # 메인 실행 파일
+├── config/
+│   └── settings.py         # 전체 설정 (Pydantic)
+├── api/
+│   ├── kis_auth.py         # KIS 인증 (OAuth)
+│   ├── kis_market.py       # 시세 조회
+│   ├── kis_order.py        # 주문 (매수/매도)
+│   └── kis_websocket.py    # 실시간 WebSocket
+├── strategy/
+│   ├── scanner.py          # 갭업 종목 스캐너
+│   ├── indicators.py       # 기술적 지표 (VWAP, EMA, ATR)
+│   └── ross_cameron.py     # 로스 카메론 전략 엔진
+├── ai/
+│   ├── trade_executor.py   # Claude 매매 판단
+│   ├── stock_analyst.py    # GPT+Gemini 종목 분석
+│   └── report_generator.py # 일일 리포트 생성
+├── core/
+│   ├── trading_engine.py   # 핵심 트레이딩 엔진
+│   ├── position_manager.py # 포지션 관리
+│   └── risk_manager.py     # 리스크 관리
+├── dashboard/
+│   └── app.py              # Streamlit 실시간 대시보드
+├── utils/
+│   └── market_hours.py     # 시장 시간 유틸리티
+├── reports/daily/          # 일일 리포트 저장
+├── logs/                   # 로그 파일
+└── tests/                  # 테스트
+```
+
+## 주의사항
+
+- **모의투자 먼저**: `KIS_ENVIRONMENT=VIRTUAL`로 충분히 테스트 후 실전 전환
+- **API 호출 제한**: 한국투자증권 API는 초당 20건 제한
+- **시장 위험**: 자동매매는 항상 손실 위험이 있으므로 소액으로 시작
