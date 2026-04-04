@@ -4,6 +4,8 @@
 """
 
 import json
+import os
+import hmac
 import time
 from datetime import datetime
 from pathlib import Path
@@ -51,7 +53,40 @@ def load_trade_log() -> list:
     return []
 
 
+def require_dashboard_auth():
+    """환경변수 기반 간단 로그인 보호.
+
+    DASHBOARD_PASSWORD가 설정된 경우에만 인증 활성화.
+    """
+    expected_password = os.getenv("DASHBOARD_PASSWORD", "").strip()
+    if not expected_password:
+        return
+
+    expected_user = os.getenv("DASHBOARD_USER", "admin").strip() or "admin"
+    if st.session_state.get("dashboard_auth_ok"):
+        return
+
+    st.title("Dashboard Login")
+    st.caption("Authorized access only")
+
+    with st.form("dashboard_login"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Login")
+
+    if submitted:
+        user_ok = hmac.compare_digest(username, expected_user)
+        pass_ok = hmac.compare_digest(password, expected_password)
+        if user_ok and pass_ok:
+            st.session_state["dashboard_auth_ok"] = True
+            st.rerun()
+        st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
+
+    st.stop()
+
+
 def main():
+    require_dashboard_auth()
     data = load_dashboard_data()
     trade_log = load_trade_log()
 

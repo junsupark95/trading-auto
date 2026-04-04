@@ -144,3 +144,39 @@ trading-auto/
 - **모의투자 먼저**: `KIS_ENVIRONMENT=VIRTUAL`로 충분히 테스트 후 실전 전환
 - **API 호출 제한**: 한국투자증권 API는 초당 20건 제한
 - **시장 위험**: 자동매매는 항상 손실 위험이 있으므로 소액으로 시작
+
+## Render 배포 (모바일 접속)
+
+현재 구조는 대시보드가 `logs/dashboard_state.json`을 읽습니다.  
+그래서 Render에서는 **트레이딩 엔진 + 대시보드를 같은 컨테이너에서 실행**해야 실시간 값이 보입니다.
+
+### 1) GitHub push
+- `Dockerfile`, `render.yaml`, `scripts/start_render.sh`가 포함된 상태로 push
+
+### 2) Render 생성
+1. Render 대시보드에서 `New +` -> `Blueprint`
+2. GitHub 저장소 선택
+3. `render.yaml` 인식 후 서비스 생성
+
+### 3) 환경변수 입력 (Render)
+- 필수:
+  - `KIS_APP_KEY`
+  - `KIS_APP_SECRET`
+  - `KIS_ACCOUNT_NO`
+  - `KIS_ENVIRONMENT` (`VIRTUAL` 권장)
+  - `ANTHROPIC_API_KEY`
+  - `OPENAI_API_KEY`
+  - `GOOGLE_API_KEY`
+- 권장:
+  - `DASHBOARD_USER=admin`
+  - `DASHBOARD_PASSWORD=<강한비밀번호>`
+  - `APP_MODE=fullstack`
+  - `TRADING_PROFILE=virtual`
+
+### 4) 핸드폰 접속
+- 배포 완료 후 Render URL을 모바일 브라우저에서 열면 됩니다.
+- `DASHBOARD_PASSWORD`를 설정했다면 로그인 화면이 먼저 나옵니다.
+
+### 운영 권장
+- 초기에는 `KIS_ENVIRONMENT=VIRTUAL`로만 운영
+- 실전 전환 시 소액/짧은 시간부터 검증
