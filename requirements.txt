@@ -1,0 +1,31 @@
+# 한국투자증권 API
+mojito2>=0.1.6
+pykis>=0.7.0
+requests>=2.31.0
+websockets>=12.0
+
+# AI APIs
+anthropic>=0.40.0
+openai>=1.50.0
+google-generativeai>=0.8.0
+
+# Dashboard
+streamlit>=1.38.0
+plotly>=5.22.0
+streamlit-autorefresh>=1.0.1
+
+# Data & Analysis
+pandas>=2.2.0
+numpy>=1.26.0
+ta>=0.11.0
+
+# Scheduling & Async
+apscheduler>=3.10.0
+asyncio-mqtt>=0.16.0
+
+# Utilities
+python-dotenv>=1.0.0
+loguru>=0.7.0
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+pytz>=2024.1
