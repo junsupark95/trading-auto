@@ -29,6 +29,7 @@ from core.risk_manager import RiskManager
 from ai.trade_executor import ClaudeTradeExecutor
 from ai.stock_analyst import AIStockAnalyst
 from ai.report_generator import DailyReportGenerator
+from utils.telegram_notifier import TelegramNotifier
 
 KST = pytz.timezone("Asia/Seoul")
 
@@ -55,6 +56,9 @@ class TradingEngine:
         self.analyst = AIStockAnalyst()
         self.reporter = DailyReportGenerator()
 
+        # 알림
+        self.notifier = TelegramNotifier()
+
         # 상태
         self.candidates: list[dict] = []
         self.selected_stocks: list[dict] = []
@@ -77,6 +81,12 @@ class TradingEngine:
 
         self.is_running = True
         self._authenticate()
+        env_label = "실전" if self.auth.base_url.find("vts") == -1 else "모의투자"
+        self.notifier.notify_engine_start(
+            environment=env_label,
+            max_capital=trading_settings.max_daily_capital,
+            max_loss=trading_settings.max_daily_loss,
+        )
 
     def stop(self):
         """엔진 종료"""
@@ -125,6 +135,7 @@ class TradingEngine:
             ]
 
         self.last_scan_time = datetime.now(KST)
+        self.notifier.notify_scan_result(self.selected_stocks)
         return self.selected_stocks
 
     def run_entry_cycle(self):
@@ -246,6 +257,15 @@ class TradingEngine:
                 ai_reasoning=ai_decision.get("reasoning", ""),
             )
             self._log_trade("BUY", pos.to_dict(), ai_decision)
+            self.notifier.notify_buy(
+                stock_name=stock_name,
+                stock_code=stock_code,
+                qty=qty,
+                entry_price=current_price,
+                stop_loss=pos.stop_loss,
+                take_profit=pos.take_profit,
+                reasoning=ai_decision.get("reasoning", ""),
+            )
         else:
             logger.error(f"매수 실패: {stock_name} - {result.get('error')}")
 
@@ -311,6 +331,16 @@ class TradingEngine:
             if trade:
                 self.risk_mgr.update_on_trade_close(trade["realized_pnl"])
                 self._log_trade("SELL", trade, {"reasoning": reason})
+                self.notifier.notify_sell(
+                    stock_name=trade.get("stock_name", pos.stock_name),
+                    stock_code=pos.stock_code,
+                    qty=trade.get("qty", pos.qty),
+                    entry_price=trade.get("entry_price", pos.entry_price),
+                    exit_price=price,
+                    realized_pnl=trade.get("realized_pnl", 0),
+                    realized_pnl_pct=trade.get("realized_pnl_pct", 0.0),
+                    reason=reason,
+                )
         else:
             logger.error(f"매도 실패: {pos.stock_name} - {result.get('error')}")
 
@@ -345,7 +375,16 @@ class TradingEngine:
             "risk_status": self.risk_mgr.get_status(),
         }
 
-        return self.reporter.generate(trading_data)
+        report = self.reporter.generate(trading_data)
+        self.notifier.notify_daily_report(
+            date=today,
+            total_trades=trading_data["total_trades"],
+            winning_trades=trading_data["winning_trades"],
+            win_rate=trading_data["win_rate"],
+            daily_pnl=trading_data["daily_pnl"],
+            grade=report.get("overall_grade", "-"),
+        )
+        return report
 
     # ========== 유틸리티 ==========
 

@@ -54,6 +54,14 @@ class AISettings(BaseSettings):
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 
+class TelegramSettings(BaseSettings):
+    """텔레그램 알림 설정"""
+    bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
+    chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
+
+    model_config = {"env_file": ".env", "extra": "ignore"}
+
+
 class RossCameronSettings(BaseSettings):
     """로스 카메론 전략 파라미터"""
     # 갭업 스캐너 조건
@@ -88,4 +96,5 @@ class RossCameronSettings(BaseSettings):
 kis_settings = KISSettings()
 trading_settings = TradingSettings()
 ai_settings = AISettings()
+telegram_settings = TelegramSettings()
 ross_settings = RossCameronSettings()
