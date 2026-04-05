@@ -76,10 +76,10 @@ class RossCameronSettings(BaseSettings):
     trailing_stop_pct: float = 1.5    # 트레일링 스탑 (%)
 
     # 시간 필터
-    trading_start: str = "09:00"      # 매매 시작 시간
-    trading_end: str = "15:00"        # 매매 종료 시간
-    prime_time_start: str = "09:00"   # 핵심 시간대 시작
-    prime_time_end: str = "10:30"     # 핵심 시간대 종료 (로스 카메론: 첫 1~2시간 집중)
+    trading_start: str = Field(default="09:00", alias="TRADING_START")      # 매매 시작 시간
+    trading_end: str = Field(default="15:30", alias="TRADING_END")          # 매매 종료 시간
+    prime_time_start: str = Field(default="09:00", alias="PRIME_TIME_START")   # 핵심 시간대 시작
+    prime_time_end: str = Field(default="10:30", alias="PRIME_TIME_END")       # 핵심 시간대 종료 (로스 카메론: 첫 1~2시간 집중)
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
