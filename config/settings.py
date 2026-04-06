@@ -37,7 +37,7 @@ class TradingSettings(BaseSettings):
     max_position_pct: int = Field(default=20, alias="MAX_POSITION_PCT")
     max_positions: int = Field(default=5, alias="MAX_POSITIONS")
     order_cooldown_sec: int = Field(default=10, alias="ORDER_COOLDOWN_SEC")
-    max_slippage_pct: float = Field(default=0.5, alias="MAX_SLIPPAGE_PCT")
+    max_slippage_pct: float = Field(default=1.5, alias="MAX_SLIPPAGE_PCT")
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
@@ -47,9 +47,9 @@ class AISettings(BaseSettings):
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     google_api_key: str = Field(default="", alias="GOOGLE_API_KEY")
-    claude_model: str = Field(default="claude-opus-4-6", alias="CLAUDE_MODEL")
-    openai_model: str = Field(default="gpt-5.2-chat-latest", alias="OPENAI_MODEL")
-    gemini_model: str = Field(default="gemini-3-pro-preview", alias="GEMINI_MODEL")
+    claude_model: str = Field(default="claude-sonnet-4-6", alias="CLAUDE_MODEL")
+    openai_model: str = Field(default="gpt-4o", alias="OPENAI_MODEL")
+    gemini_model: str = Field(default="gemini-1.5-pro", alias="GEMINI_MODEL")
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

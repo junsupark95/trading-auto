@@ -71,15 +71,8 @@ class ClaudeTradeExecutor:
         """
         prompt = self._build_entry_prompt(context)
         if self.client is None:
-            return {
-                "decision": "HOLD",
-                "confidence": 0.0,
-                "reasoning": "Claude API 키 미설정",
-                "risk_assessment": "판단 불가",
-                "suggested_qty": 0,
-                "suggested_stop_loss": 0,
-                "suggested_take_profit": 0,
-            }
+            logger.warning(f"Claude API 키 미설정 → 전략 신호로 대체 판단: {context.get('stock_name', '?')}")
+            return self._strategy_fallback(context)
 
         try:
             response = self.client.messages.create(
@@ -96,15 +89,7 @@ class ClaudeTradeExecutor:
             return result
         except Exception as e:
             logger.error(f"Claude 매수 판단 실패: {e}")
-            return {
-                "decision": "HOLD",
-                "confidence": 0.0,
-                "reasoning": f"AI 판단 오류: {e}",
-                "risk_assessment": "판단 불가",
-                "suggested_qty": 0,
-                "suggested_stop_loss": 0,
-                "suggested_take_profit": 0,
-            }
+            return self._strategy_fallback(context)
 
     def decide_exit(self, context: dict) -> dict:
         """매도 청산 여부 판단
@@ -152,6 +137,38 @@ class ClaudeTradeExecutor:
                 "reasoning": f"AI 판단 오류: {e}",
                 "risk_assessment": "판단 불가",
             }
+
+    def _strategy_fallback(self, context: dict) -> dict:
+        """Claude API 불가 시 전략 신호 기반 폴백 판단.
+
+        전략 신뢰도 0.7 이상이면 BUY, 미만이면 HOLD.
+        """
+        signal = context.get("strategy_signal", {})
+        confidence = float(signal.get("confidence", 0.0))
+        action = signal.get("action", "HOLD")
+        if action == "BUY" and confidence >= 0.7:
+            logger.info(
+                f"전략 신호 폴백 BUY: {context.get('stock_name', '?')} "
+                f"(전략 신뢰도: {confidence:.0%})"
+            )
+            return {
+                "decision": "BUY",
+                "confidence": confidence * 0.9,  # AI 미검증이므로 10% 할인
+                "reasoning": f"Claude API 불가 → 전략 신호 자동 승인 ({signal.get('reason', '')})",
+                "risk_assessment": "AI 검증 생략 - 전략 신호만으로 판단",
+                "suggested_qty": 0,
+                "suggested_stop_loss": int(signal.get("stop_loss", 0)),
+                "suggested_take_profit": int(signal.get("take_profit", 0)),
+            }
+        return {
+            "decision": "HOLD",
+            "confidence": 0.0,
+            "reasoning": f"Claude API 불가, 전략 신뢰도 부족 ({confidence:.0%} < 70%)",
+            "risk_assessment": "판단 불가",
+            "suggested_qty": 0,
+            "suggested_stop_loss": 0,
+            "suggested_take_profit": 0,
+        }
 
     def _build_entry_prompt(self, ctx: dict) -> str:
         """매수 분석 프롬프트 생성"""
