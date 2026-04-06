@@ -21,7 +21,14 @@ class KISOrder:
 
     @property
     def _account_suffix(self) -> str:
-        return self.account_no.split("-")[1]
+        parts = self.account_no.split("-")
+        if len(parts) < 2:
+            logger.error(
+                f"KIS_ACCOUNT_NO 형식 오류: '{self.account_no}' "
+                "(올바른 형식: 12345678-01)"
+            )
+            return "01"
+        return parts[1]
 
     def buy_market(self, stock_code: str, qty: int) -> dict:
         """시장가 매수"""

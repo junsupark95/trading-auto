@@ -7,6 +7,7 @@ Gemini가 교차 검증 및 보완 의견을 제시합니다.
 import json
 import warnings
 import openai
+import anthropic
 from loguru import logger
 from config.settings import ai_settings
 
@@ -90,6 +91,10 @@ class AIStockAnalyst:
         else:
             logger.warning("GOOGLE_API_KEY 미설정: Gemini 검증 비활성화")
 
+        self.claude_client = None
+        if ai_settings.anthropic_api_key:
+            self.claude_client = anthropic.Anthropic(api_key=ai_settings.anthropic_api_key)
+
         self.openai_model = ai_settings.openai_model
         self.gemini_model_name = ai_settings.gemini_model
         if ai_settings.google_api_key:
@@ -127,7 +132,7 @@ class AIStockAnalyst:
 """
         try:
             if self.openai_client is None:
-                return {"selected_stocks": [], "market_overview": "GPT 비활성화"}
+                raise RuntimeError("OPENAI_API_KEY 미설정")
             response = self.openai_client.chat.completions.create(
                 model=self.openai_model,
                 messages=[
@@ -142,8 +147,8 @@ class AIStockAnalyst:
             logger.info(f"GPT 분석 완료: {len(result.get('selected_stocks', []))}개 종목 선정")
             return result
         except Exception as e:
-            logger.error(f"GPT 분석 실패: {e}")
-            return {"selected_stocks": [], "market_overview": f"분석 실패: {e}"}
+            logger.warning(f"GPT 분석 실패: {e} → Claude로 대체")
+            return self._claude_analyze(scanner_summary, market_data)
 
     def _gemini_validate(self, gpt_result: dict,
                          scanner_summary: str) -> dict:
@@ -160,14 +165,39 @@ class AIStockAnalyst:
 """
         try:
             if self.gemini_model is None:
-                return {"validations": [], "overall_risk": "Gemini 비활성화"}
+                raise RuntimeError("GOOGLE_API_KEY 미설정")
             response = self.gemini_model.generate_content(prompt)
             result = self._parse_json(response.text)
             logger.info("Gemini 교차 검증 완료")
             return result
         except Exception as e:
-            logger.error(f"Gemini 검증 실패: {e}")
-            return {"validations": [], "overall_risk": f"검증 실패: {e}"}
+            logger.warning(f"Gemini 검증 실패: {e} → 검증 생략(전종목 승인)")
+            # Gemini 실패 시 GPT 선정 종목을 그대로 통과
+            return {"validations": [], "overall_risk": "Gemini 검증 생략"}
+
+    def _claude_analyze(self, scanner_summary: str, market_data: dict = None) -> dict:
+        """Claude를 GPT 대체로 사용하는 종목 분석"""
+        if self.claude_client is None:
+            return {"selected_stocks": [], "market_overview": "Claude API 키 미설정"}
+        prompt = f"""## 오늘의 갭업 스캐너 결과
+{scanner_summary}
+
+{GPT_ANALYST_PROMPT}
+
+반드시 JSON만 응답하세요."""
+        try:
+            response = self.claude_client.messages.create(
+                model=ai_settings.claude_model,
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.content[0].text
+            result = self._parse_json(text)
+            logger.info(f"Claude 분석 완료: {len(result.get('selected_stocks', []))}개 종목 선정")
+            return result
+        except Exception as e:
+            logger.error(f"Claude 분석 실패: {e}")
+            return {"selected_stocks": [], "market_overview": f"분석 실패: {e}"}
 
     def _combine_results(self, gpt_result: dict, gemini_result: dict) -> dict:
         """GPT + Gemini 결과 통합"""

@@ -241,6 +241,14 @@ def check_runtime_config() -> bool:
         logger.error(f"필수 환경변수 누락: {', '.join(missing)}")
         return False
 
+    account_no = os.getenv("KIS_ACCOUNT_NO", "")
+    if "-" not in account_no:
+        logger.error(
+            f"KIS_ACCOUNT_NO 형식 오류: '{account_no}' "
+            "(올바른 형식 예시: 12345678-01)"
+        )
+        return False
+
     env = os.getenv("KIS_ENVIRONMENT", "VIRTUAL").upper()
     if env not in {"VIRTUAL", "REAL"}:
         logger.error(f"KIS_ENVIRONMENT 값 오류: {env} (VIRTUAL/REAL 중 하나)")
