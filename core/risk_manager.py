@@ -43,7 +43,7 @@ class RiskManager:
         # 5) 일일 총 투자 한도 확인
         total_invested = sum(p.total_value for p in self.pm.positions.values())
         if total_invested + amount > self.settings.max_daily_capital:
-            return False, f"일일 투자 한도 초과"
+            return False, "일일 투자 한도 초과"
 
         # 6) 연속 손실 시 경고
         if self.consecutive_losses >= 3:

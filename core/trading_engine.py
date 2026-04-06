@@ -63,12 +63,35 @@ class TradingEngine:
         self.candidates: list[dict] = []
         self.selected_stocks: list[dict] = []
         self.trade_log: list[dict] = []
+        self.ai_activity: list[dict] = []
         self.is_running = False
         self.last_scan_time: datetime | None = None
         self.last_order_time: float = 0.0
 
         # 로그 디렉토리
         Path("logs").mkdir(exist_ok=True)
+
+    def _record_ai_event(
+        self,
+        module: str,
+        action: str,
+        status: str,
+        summary: str = "",
+        metadata: dict | None = None,
+    ):
+        """AI 호출 이벤트 기록 (대시보드 표시용)."""
+        event = {
+            "timestamp": datetime.now(KST).isoformat(),
+            "module": module,
+            "action": action,
+            "status": status,  # START/SUCCESS/FALLBACK/ERROR/SKIP
+            "summary": summary,
+            "metadata": metadata or {},
+        }
+        self.ai_activity.append(event)
+        # 메모리 보호: 최근 200건만 유지
+        if len(self.ai_activity) > 200:
+            self.ai_activity = self.ai_activity[-200:]
 
     def start(self):
         """트레이딩 엔진 시작"""
@@ -118,15 +141,23 @@ class TradingEngine:
 
         # 2) AI 종목 분석 (GPT + Gemini)
         try:
+            self._record_ai_event("ANALYST", "analyze_candidates", "START", "스캐너 결과 분석 시작")
             analysis = self.analyst.analyze_candidates(scanner_summary)
             self.selected_stocks = analysis.get("final_picks", [])
             if not self.selected_stocks:
                 raise ValueError("AI 선정 결과가 비어 있음")
+            self._record_ai_event(
+                "ANALYST",
+                "analyze_candidates",
+                "SUCCESS",
+                f"{len(self.selected_stocks)}개 종목 선정",
+            )
             logger.info(
                 f"AI 종목 선정: {len(self.selected_stocks)}개 "
                 f"(시장 개요: {analysis.get('market_overview', '')[:100]})"
             )
         except Exception as e:
+            self._record_ai_event("ANALYST", "analyze_candidates", "ERROR", str(e)[:160])
             logger.error(f"AI 종목 분석 실패: {e}")
             # AI 실패 시 스캐너 상위 5개를 그대로 사용
             self.selected_stocks = [
@@ -163,8 +194,6 @@ class TradingEngine:
 
     def _evaluate_and_enter(self, stock_code: str, stock_name: str):
         """개별 종목 진입 평가 및 실행"""
-        import traceback as _tb
-
         # 1) 현재가 조회
         try:
             price_data = self.market.get_current_price(stock_code)
@@ -232,15 +261,25 @@ class TradingEngine:
             "daily_pnl": self.position_mgr.realized_pnl,
         }
 
+        self._record_ai_event("CLAUDE", "decide_entry", "START", stock_name)
         ai_decision = self.claude.decide_entry(context)
+        self._record_ai_event(
+            "CLAUDE",
+            "decide_entry",
+            "SUCCESS",
+            f"{stock_name} → {ai_decision.get('decision', 'HOLD')}",
+            {"confidence": ai_decision.get("confidence", 0)},
+        )
 
         if ai_decision.get("decision") != "BUY":
+            self._record_ai_event("CLAUDE", "decide_entry", "SKIP", f"{stock_name} 관망")
             logger.info(
                 f"Claude 관망: {stock_name} - {ai_decision.get('reasoning', '')[:100]}"
             )
             return
 
         if ai_decision.get("confidence", 0) < 0.6:
+            self._record_ai_event("CLAUDE", "decide_entry", "SKIP", f"{stock_name} 신뢰도 부족")
             logger.info(f"Claude 신뢰도 부족: {stock_name} ({ai_decision.get('confidence', 0):.0%})")
             return
 
@@ -338,7 +377,15 @@ class TradingEngine:
                 "chart_summary": self._build_chart_summary(df, price_data),
             }
 
+            self._record_ai_event("CLAUDE", "decide_exit", "START", pos.stock_name)
             ai_decision = self.claude.decide_exit(context)
+            self._record_ai_event(
+                "CLAUDE",
+                "decide_exit",
+                "SUCCESS",
+                f"{pos.stock_name} → {ai_decision.get('decision', 'HOLD')}",
+                {"confidence": ai_decision.get("confidence", 0)},
+            )
 
             if ai_decision.get("decision") == "SELL" and ai_decision.get("confidence", 0) >= 0.6:
                 reason = f"Claude 판단: {ai_decision.get('reasoning', '')[:100]}"
@@ -396,7 +443,14 @@ class TradingEngine:
             "risk_status": self.risk_mgr.get_status(),
         }
 
+        self._record_ai_event("REPORT", "generate_daily_report", "START", today)
         report = self.reporter.generate(trading_data)
+        self._record_ai_event(
+            "REPORT",
+            "generate_daily_report",
+            "SUCCESS",
+            report.get("title", "리포트 생성 완료")[:120],
+        )
         self.notifier.notify_daily_report(
             date=today,
             total_trades=trading_data["total_trades"],
@@ -489,5 +543,13 @@ class TradingEngine:
             "candidates": self.candidates[:10],
             "selected_stocks": self.selected_stocks,
             "trade_log": self.trade_log[-20:],
+            "ai_activity": self.ai_activity[-30:],
+            "ai_modules": {
+                "claude_trade": bool(self.claude.client),
+                "gpt_analyst": bool(self.analyst.openai_client),
+                "gemini_validator": bool(self.analyst.gemini_model),
+                "gpt_report": bool(self.reporter.openai_client),
+                "gemini_report": bool(self.reporter.gemini_model),
+            },
             "last_scan_time": self.last_scan_time.isoformat() if self.last_scan_time else None,
         }
