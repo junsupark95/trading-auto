@@ -17,18 +17,19 @@ class KISOrder:
 
     @property
     def _account_prefix(self) -> str:
-        return self.account_no.split("-")[0]
+        """계좌번호 앞 8자리 (CANO)"""
+        if "-" in self.account_no:
+            return self.account_no.split("-")[0]
+        # 하이픈 없이 붙여쓴 경우: 앞 8자리
+        return self.account_no[:8]
 
     @property
     def _account_suffix(self) -> str:
-        parts = self.account_no.split("-")
-        if len(parts) < 2:
-            logger.error(
-                f"KIS_ACCOUNT_NO 형식 오류: '{self.account_no}' "
-                "(올바른 형식: 12345678-01)"
-            )
-            return "01"
-        return parts[1]
+        """계좌상품코드 뒤 2자리 (ACNT_PRDT_CD)"""
+        if "-" in self.account_no:
+            return self.account_no.split("-")[1]
+        # 하이픈 없이 붙여쓴 경우: 뒤 2자리, 8자리만 있으면 "01" 기본값
+        return self.account_no[8:] if len(self.account_no) > 8 else "01"
 
     def buy_market(self, stock_code: str, qty: int) -> dict:
         """시장가 매수"""

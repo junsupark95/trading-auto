@@ -243,11 +243,12 @@ def check_runtime_config() -> bool:
 
     account_no = os.getenv("KIS_ACCOUNT_NO", "")
     if "-" not in account_no:
-        logger.error(
-            f"KIS_ACCOUNT_NO 형식 오류: '{account_no}' "
-            "(올바른 형식 예시: 12345678-01)"
-        )
-        return False
+        if len(account_no) == 10:
+            logger.info(f"KIS_ACCOUNT_NO: 하이픈 없는 10자리 형식 사용 ({account_no[:8]}-{account_no[8:]})")
+        elif len(account_no) == 8:
+            logger.info(f"KIS_ACCOUNT_NO: 8자리 형식 사용, ACNT_PRDT_CD='01' 기본값 적용")
+        else:
+            logger.warning(f"KIS_ACCOUNT_NO 형식 확인 필요: '{account_no}' (일반 형식: 12345678-01 또는 1234567801)")
 
     env = os.getenv("KIS_ENVIRONMENT", "VIRTUAL").upper()
     if env not in {"VIRTUAL", "REAL"}:
