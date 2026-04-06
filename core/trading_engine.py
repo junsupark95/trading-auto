@@ -155,20 +155,32 @@ class TradingEngine:
             try:
                 self._evaluate_and_enter(code, name)
             except Exception as e:
+                import traceback
                 logger.error(f"진입 분석 오류 ({name}): {e}")
+                logger.debug(traceback.format_exc())
 
             time.sleep(0.5)  # API 호출 간격
 
     def _evaluate_and_enter(self, stock_code: str, stock_name: str):
         """개별 종목 진입 평가 및 실행"""
+        import traceback as _tb
+
         # 1) 현재가 조회
-        price_data = self.market.get_current_price(stock_code)
-        current_price = price_data["price"]
+        try:
+            price_data = self.market.get_current_price(stock_code)
+            current_price = price_data["price"]
+        except Exception as e:
+            logger.debug(f"현재가 조회 실패 ({stock_name}): {e}")
+            return
         if current_price == 0:
             return
 
         # 2) 분봉 데이터 조회
-        df = self.market.get_minute_chart(stock_code)
+        try:
+            df = self.market.get_minute_chart(stock_code)
+        except Exception as e:
+            logger.debug(f"분봉 조회 실패 ({stock_name}): {e}")
+            return
 
         # 3) 전략 엔진 분석
         signal = self.strategy.analyze_entry(
@@ -180,7 +192,11 @@ class TradingEngine:
             return
 
         # 4) 호가 조회
-        orderbook = self.market.get_orderbook(stock_code)
+        try:
+            orderbook = self.market.get_orderbook(stock_code)
+        except Exception as e:
+            logger.debug(f"호가 조회 실패 ({stock_name}): {e}")
+            return
 
         # 진입 주문 쿨다운
         if self._is_entry_cooldown():
@@ -195,7 +211,12 @@ class TradingEngine:
             return
 
         # 5) Claude AI 최종 판단
-        cash = self.order.get_cash_balance()
+        try:
+            cash = self.order.get_cash_balance()
+        except Exception as e:
+            logger.debug(f"잔고 조회 실패 ({stock_name}): {e}")
+            return
+
         context = {
             "stock_code": stock_code,
             "stock_name": stock_name,

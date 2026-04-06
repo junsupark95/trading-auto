@@ -145,14 +145,15 @@ class RossCameronStrategy:
             score -= 0.1
             reasons.append(f"거래량 부족 ({rel_vol:.1f}x)")
 
-        # 손절/익절 계산
+        # 손절/익절 계산 (int 반올림으로 R:R이 2:1 미달하지 않도록 floor/ceil 사용)
+        import math
         atr = latest.get("atr", 0)
         if atr > 0:
-            stop_loss = int(current_price - (atr * 1.5))
-            take_profit = int(current_price + (atr * 3.0))
+            stop_loss = math.floor(current_price - (atr * 1.5))   # 낮게 → 위험 확보
+            take_profit = math.ceil(current_price + (atr * 3.0))  # 높게 → 보상 확보
         else:
-            stop_loss = int(current_price * (1 - self.settings.stop_loss_pct / 100))
-            take_profit = int(current_price * (1 + self.settings.take_profit_pct / 100))
+            stop_loss = math.floor(current_price * (1 - self.settings.stop_loss_pct / 100))
+            take_profit = math.ceil(current_price * (1 + self.settings.take_profit_pct / 100))
 
         # 보상/위험 비율 확인
         risk = current_price - stop_loss

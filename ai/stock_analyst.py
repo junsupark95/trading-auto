@@ -179,21 +179,36 @@ class AIStockAnalyst:
         """Claude를 GPT 대체로 사용하는 종목 분석"""
         if self.claude_client is None:
             return {"selected_stocks": [], "market_overview": "Claude API 키 미설정"}
-        prompt = f"""## 오늘의 갭업 스캐너 결과
+        prompt = f"""아래 갭업 스캐너 결과를 분석하여 매매 가치 높은 상위 종목을 선정하세요.
+
 {scanner_summary}
 
-{GPT_ANALYST_PROMPT}
-
-반드시 JSON만 응답하세요."""
+다음 JSON 형식으로만 응답하세요. 설명이나 마크다운 없이 순수 JSON만:
+{{
+  "selected_stocks": [
+    {{
+      "stock_code": "종목코드",
+      "stock_name": "종목명",
+      "score": 0,
+      "reason": "선정 이유",
+      "entry_strategy": "진입 전략",
+      "risk_factors": "위험 요소",
+      "target_return": "목표 수익률"
+    }}
+  ],
+  "market_overview": "시장 개요",
+  "trading_plan": "매매 전략"
+}}"""
         try:
             response = self.claude_client.messages.create(
                 model=ai_settings.claude_model,
                 max_tokens=2048,
                 messages=[{"role": "user", "content": prompt}],
             )
-            text = response.content[0].text
+            text = response.content[0].text.strip()
             result = self._parse_json(text)
-            logger.info(f"Claude 분석 완료: {len(result.get('selected_stocks', []))}개 종목 선정")
+            picks = result.get("selected_stocks", [])
+            logger.info(f"Claude 분석 완료: {len(picks)}개 종목 선정")
             return result
         except Exception as e:
             logger.error(f"Claude 분석 실패: {e}")
