@@ -49,7 +49,7 @@ class AISettings(BaseSettings):
     google_api_key: str = Field(default="", alias="GOOGLE_API_KEY")
     claude_model: str = Field(default="claude-sonnet-4-6", alias="CLAUDE_MODEL")
     openai_model: str = Field(default="gpt-4o", alias="OPENAI_MODEL")
-    gemini_model: str = Field(default="gemini-1.5-pro", alias="GEMINI_MODEL")
+    gemini_model: str = Field(default="gemini-1.5-flash", alias="GEMINI_MODEL")
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
