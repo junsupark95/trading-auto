@@ -102,7 +102,7 @@ def render_position_table(open_positions: list[dict]):
             _pnl_color,
             subset=[c for c in ["손익(원)", "수익률(%)"] if c in display_df.columns],
         ),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -138,7 +138,7 @@ def render_pnl_chart(closed_trades: list[dict]):
         yaxis_title="손익 (원)",
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def render_ai_health(ai_modules: dict, ai_activity: list[dict]):
@@ -357,9 +357,9 @@ def main():
 
         st.subheader("AI 모듈 상태")
         st.markdown("""
-        - **Claude Opus**: 매매 실행 판단
-        - **GPT-5.2**: 종목 선정 & 리포트
-        - **Gemini 3 Pro**: 교차 검증
+        - **Gemini 1.5 Flash**: 종목 선정 (무료)
+        - **Claude Haiku**: 매매 실행 판단
+        - **GPT-4o-mini**: 폴백 분석
         """)
 
         st.divider()

@@ -15,6 +15,7 @@ from __future__ import annotations
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import signal
@@ -268,6 +269,25 @@ def check_runtime_config() -> bool:
     return True
 
 
+def _run_api_preflight_check():
+    """AI API 사전 연결 점검 (시작 시 자동 실행)"""
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "check_api",
+            Path(__file__).parent / "scripts" / "check_api.py",
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.check_gemini()
+        mod.check_claude()
+        mod.check_openai()
+        ok = sum(1 for v in mod.results.values() if v == "ok")
+        fail = sum(1 for v in mod.results.values() if v == "fail")
+        logger.info(f"API 점검 완료: 성공 {ok}  실패 {fail}  (Gemini={'OK' if mod.results.get('gemini')=='ok' else 'FAIL/SKIP'})")
+    except Exception as e:
+        logger.warning(f"API 사전 점검 실패 (무시하고 계속): {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="AI 모멘텀 트레이딩 시스템")
     parser.add_argument(
@@ -303,6 +323,7 @@ def main():
     if args.report:
         run_report_only()
     else:
+        _run_api_preflight_check()
         app = TradingApp()
         app.run(scan_only=args.scan_only)
 
