@@ -58,7 +58,8 @@ class RossCameronStrategy:
         self.indicators = TechnicalIndicators()
 
     def analyze_entry(self, stock_code: str, stock_name: str,
-                      df: pd.DataFrame, current_price: int) -> TradeSignal:
+                      df: pd.DataFrame, current_price: int,
+                      price_data: dict = None) -> TradeSignal:
         """매수 진입 분석
 
         로스 카메론 진입 조건:
@@ -68,7 +69,10 @@ class RossCameronStrategy:
         4. 적절한 시간대
         5. 캔들 패턴 확인
         """
-        if df.empty or len(df) < 5:
+        if df is None or df.empty or len(df) < 5:
+            # 분봉 없을 때 현재가 데이터로 간략 분석 (모의투자 API 500 오류 대비)
+            if price_data:
+                return self._analyze_entry_no_chart(stock_code, stock_name, current_price, price_data)
             return TradeSignal(TradeSignal.HOLD, stock_code, "데이터 부족")
 
         # 지표 계산
@@ -251,6 +255,71 @@ class RossCameronStrategy:
                 )
 
         return TradeSignal(TradeSignal.HOLD, stock_code, "보유 유지")
+
+    def _analyze_entry_no_chart(self, stock_code: str, stock_name: str,
+                                current_price: int, price_data: dict) -> TradeSignal:
+        """분봉 데이터 없을 때 현재가 정보만으로 간략 진입 분석"""
+        import math
+        reasons = []
+        score = 0.0
+
+        # 시간대 확인
+        now = datetime.now(KST)
+        prime_start = datetime.strptime(self.settings.prime_time_start, "%H:%M").time()
+        prime_end = datetime.strptime(self.settings.prime_time_end, "%H:%M").time()
+        trading_end = datetime.strptime(self.settings.trading_end, "%H:%M").time()
+
+        if now.time() > trading_end:
+            return TradeSignal(TradeSignal.HOLD, stock_code, "매매 시간 종료")
+
+        if prime_start <= now.time() <= prime_end:
+            score += 0.2
+            reasons.append("핵심 시간대")
+        else:
+            reasons.append("핵심 시간대 외")
+
+        # 갭업 강도
+        change_pct = float(price_data.get("change_pct", 0))
+        if change_pct >= self.settings.min_gap_pct * 2:
+            score += 0.25
+            reasons.append(f"강한 갭업 {change_pct:+.1f}%")
+        elif change_pct >= self.settings.min_gap_pct:
+            score += 0.15
+            reasons.append(f"갭업 {change_pct:+.1f}%")
+
+        # 장중 추세: 현재가 > 시가
+        open_price = int(price_data.get("open", 0))
+        if open_price > 0 and current_price > open_price:
+            score += 0.2
+            reasons.append(f"시가({open_price:,}) 위 — 상승 모멘텀")
+        elif open_price > 0:
+            score -= 0.1
+            reasons.append(f"시가({open_price:,}) 아래")
+
+        # 고가 근접 여부 (고가 대비 3% 이내)
+        high = int(price_data.get("high", 0))
+        if high > 0 and current_price >= high * 0.97:
+            score += 0.15
+            reasons.append("당일 고가 근접")
+
+        # 손절/익절 (ATR 없으므로 % 기반)
+        stop_loss = math.floor(current_price * (1 - self.settings.stop_loss_pct / 100))
+        take_profit = math.ceil(current_price * (1 + self.settings.take_profit_pct / 100))
+
+        score = max(0.0, min(1.0, score))
+        # 분봉 없이 분석한 경우 BUY 임계값을 0.55로 낮춤
+        action = TradeSignal.BUY if score >= 0.55 else TradeSignal.HOLD
+        prefix = "[매수 신호·차트미사용]" if action == TradeSignal.BUY else "[관망·차트미사용]"
+
+        return TradeSignal(
+            action=action,
+            stock_code=stock_code,
+            reason=f"{prefix} {stock_name} | " + " | ".join(reasons),
+            confidence=score,
+            entry_price=current_price,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+        )
 
     def get_position_size(self, capital: int, current_price: int,
                           stop_loss: int) -> int:

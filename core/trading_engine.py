@@ -184,7 +184,7 @@ class TradingEngine:
 
         # 3) 전략 엔진 분석
         signal = self.strategy.analyze_entry(
-            stock_code, stock_name, df, current_price
+            stock_code, stock_name, df, current_price, price_data=price_data
         )
 
         if signal.action != "BUY":

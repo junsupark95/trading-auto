@@ -44,6 +44,11 @@ class KISMarket:
 
     def get_minute_chart(self, stock_code: str, period: str = "1") -> pd.DataFrame:
         """분봉 데이터 조회 (1분, 3분, 5분, 10분, 15분, 30분, 60분)"""
+        from datetime import datetime as _dt
+        import pytz as _pytz
+        _kst = _pytz.timezone("Asia/Seoul")
+        current_time = _dt.now(_kst).strftime("%H%M%S")
+
         url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice"
         headers = {
             **self.auth.headers,
@@ -53,7 +58,7 @@ class KISMarket:
             "FID_ETC_CLS_CODE": "",
             "FID_COND_MRKT_DIV_CODE": "J",
             "FID_INPUT_ISCD": stock_code,
-            "FID_INPUT_HOUR_1": "153000",
+            "FID_INPUT_HOUR_1": current_time,  # 현재 시각 기준 이전 데이터 조회 (하드코딩 시 미래 시간 문제)
             "FID_PW_DATA_INCU_YN": "Y",
         }
         resp = requests.get(url, headers=headers, params=params, timeout=10)
