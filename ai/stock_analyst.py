@@ -151,14 +151,24 @@ class AIStockAnalyst:
         return self._claude_analyze(scanner_summary, market_data)
 
     def _gemini_call(self, prompt: str) -> str:
-        """새 google-genai SDK로 Gemini 호출 (공통 헬퍼)"""
+        """새 google-genai SDK로 Gemini 호출 (429 재시도 포함)"""
         if self.gemini_client is None:
             raise RuntimeError("GOOGLE_API_KEY 미설정")
-        response = self.gemini_client.models.generate_content(
-            model=self.gemini_model_name,
-            contents=prompt,
-        )
-        return response.text
+        import time
+        for attempt in range(3):
+            try:
+                response = self.gemini_client.models.generate_content(
+                    model=self.gemini_model_name,
+                    contents=prompt,
+                )
+                return response.text
+            except Exception as e:
+                if "429" in str(e) and attempt < 2:
+                    wait = (attempt + 1) * 5  # 5초, 10초
+                    logger.warning(f"Gemini 429 rate limit → {wait}초 후 재시도 ({attempt+1}/3)")
+                    time.sleep(wait)
+                else:
+                    raise
 
     def _gemini_primary_analyze(self, scanner_summary: str, market_data: dict = None) -> dict:
         """Gemini를 사용한 1차 종목 분석 (GPT_ANALYST_PROMPT와 동일 출력 형식)"""

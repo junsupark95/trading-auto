@@ -4,20 +4,13 @@ GPT가 리포트 작성, Gemini가 보완 의견 추가
 """
 
 import json
-import warnings
 from datetime import datetime
 from pathlib import Path
 from loguru import logger
 from config.settings import ai_settings
 import openai
+from google import genai as google_genai
 import pytz
-
-warnings.filterwarnings(
-    "ignore",
-    message=r"(?s).*All support for the `google\.generativeai` package has ended.*",
-    category=FutureWarning,
-)
-import google.generativeai as genai
 
 KST = pytz.timezone("Asia/Seoul")
 
@@ -59,16 +52,14 @@ class DailyReportGenerator:
         else:
             logger.warning("OPENAI_API_KEY 미설정: GPT 리포트 생성 비활성화")
 
-        self.gemini_model = None
+        self.gemini_client = None
         if ai_settings.google_api_key:
-            genai.configure(api_key=ai_settings.google_api_key)
+            self.gemini_client = google_genai.Client(api_key=ai_settings.google_api_key)
         else:
             logger.warning("GOOGLE_API_KEY 미설정: Gemini 리포트 보완 비활성화")
 
         self.openai_model = ai_settings.openai_model
         self.gemini_model_name = ai_settings.gemini_model
-        if ai_settings.google_api_key:
-            self.gemini_model = genai.GenerativeModel(self.gemini_model_name)
         self.report_dir = Path("reports/daily")
         self.report_dir.mkdir(parents=True, exist_ok=True)
 
@@ -152,9 +143,12 @@ JSON 형식으로 응답해주세요:
 }}
 """
         try:
-            if self.gemini_model is None:
+            if self.gemini_client is None:
                 return {"error": "GOOGLE_API_KEY 미설정"}
-            response = self.gemini_model.generate_content(prompt)
+            response = self.gemini_client.models.generate_content(
+                model=self.gemini_model_name,
+                contents=prompt,
+            )
             return self._parse_json(response.text)
         except Exception as e:
             logger.error(f"Gemini 보완 실패: {e}")
