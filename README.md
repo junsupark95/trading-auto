@@ -145,6 +145,29 @@ trading-auto/
 - **API 호출 제한**: 한국투자증권 API는 초당 20건 제한
 - **시장 위험**: 자동매매는 항상 손실 위험이 있으므로 소액으로 시작
 
+## 클라이언트에서 AI 호출 실시간 확인하기
+
+대시보드 우측에 **AI 호출 모니터**가 표시됩니다.
+
+- 모듈 상태: `claude_trade`, `gpt_analyst`, `gemini_validator`, `gpt_report`, `gemini_report`
+  - 🟢 연결됨: API 키/모델 설정 완료
+  - ⚪ 미설정: 키 없음 또는 비활성 상태
+- 최근 호출 이벤트 (최신 10건)
+  - `START`: 호출 시작
+  - `SUCCESS`: 응답 수신
+  - `SKIP`: 조건 미충족으로 실행 스킵
+  - `ERROR`: 예외 발생
+  - (confidence가 있으면 함께 표시)
+
+### 실시간으로 보는 방법
+
+1. 엔진 실행 (`python main.py --profile virtual`)
+2. 대시보드 실행 (`streamlit run dashboard/app.py`)
+3. 대시보드는 기본 5초 주기로 자동 갱신되므로, 호출 이벤트가 거의 실시간으로 누적됩니다.
+
+> 참고: `logs/dashboard_state.json`은 엔진이 5초 주기로 갱신합니다.  
+> 따라서 엔진과 대시보드를 함께 띄워야 이벤트가 보입니다.
+
 ## Render 배포 (모바일 접속)
 
 현재 구조는 대시보드가 `logs/dashboard_state.json`을 읽습니다.  

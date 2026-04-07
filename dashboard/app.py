@@ -6,13 +6,11 @@
 import json
 import os
 import hmac
-import time
 from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
 import plotly.graph_objects as go
-import plotly.express as px
 import pandas as pd
 import pytz
 
@@ -51,6 +49,134 @@ def load_trade_log() -> list:
         with open(log_file, encoding="utf-8") as f:
             return json.load(f)
     return []
+
+
+def _pnl_color(v):
+    if isinstance(v, (int, float)):
+        if v < 0:
+            return "color: #ef4444"
+        if v > 0:
+            return "color: #10b981"
+    return ""
+
+
+def _format_trade_entry(entry: dict) -> str:
+    side = entry.get("side", "")
+    trade = entry.get("trade", {})
+    ts = entry.get("timestamp", "")[:19]
+    icon = "🟢" if side == "BUY" else "🔴"
+    name = trade.get("stock_name", trade.get("name", "?"))
+    price = trade.get("entry_price", trade.get("exit_price", 0))
+    qty = trade.get("qty", 0)
+    pnl_text = (
+        f" | 손익: {trade['realized_pnl']:+,}원"
+        if "realized_pnl" in trade else ""
+    )
+    return f"{icon} **{ts}** [{side}] **{name}** {qty}주 @ {price:,}원{pnl_text}"
+
+
+def render_position_table(open_positions: list[dict]):
+    st.subheader("보유 포지션")
+    if not open_positions:
+        st.info("현재 보유 중인 포지션이 없습니다.")
+        return
+
+    pos_df = pd.DataFrame(open_positions)
+    display_cols = {
+        "stock_name": "종목명",
+        "stock_code": "종목코드",
+        "qty": "수량",
+        "entry_price": "진입가",
+        "current_price": "현재가",
+        "pnl": "손익(원)",
+        "pnl_pct": "수익률(%)",
+        "stop_loss": "손절가",
+        "take_profit": "익절가",
+        "minutes_held": "보유시간(분)",
+    }
+    available_cols = [c for c in display_cols if c in pos_df.columns]
+    display_df = pos_df[available_cols].rename(columns={c: display_cols[c] for c in available_cols})
+
+    st.dataframe(
+        display_df.style.map(
+            _pnl_color,
+            subset=[c for c in ["손익(원)", "수익률(%)"] if c in display_df.columns],
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+def render_pnl_chart(closed_trades: list[dict]):
+    st.subheader("거래 손익 추이")
+    if not closed_trades:
+        st.info("아직 청산된 거래가 없습니다.")
+        return
+
+    trades_df = pd.DataFrame(closed_trades)
+    trades_df["cumulative_pnl"] = trades_df["realized_pnl"].cumsum()
+
+    fig = go.Figure()
+    colors = ["#10b981" if v >= 0 else "#ef4444" for v in trades_df["realized_pnl"]]
+    fig.add_trace(go.Bar(
+        x=list(range(1, len(trades_df) + 1)),
+        y=trades_df["realized_pnl"],
+        marker_color=colors,
+        name="개별 손익",
+    ))
+    fig.add_trace(go.Scatter(
+        x=list(range(1, len(trades_df) + 1)),
+        y=trades_df["cumulative_pnl"],
+        mode="lines+markers",
+        name="누적 손익",
+        line=dict(color="#3b82f6", width=2),
+    ))
+    fig.update_layout(
+        height=350,
+        margin=dict(l=20, r=20, t=30, b=20),
+        xaxis_title="거래 번호",
+        yaxis_title="손익 (원)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def render_ai_health(ai_modules: dict, ai_activity: list[dict]):
+    st.subheader("AI 호출 모니터")
+
+    if ai_modules:
+        for name, enabled in ai_modules.items():
+            icon = "🟢" if enabled else "⚪"
+            status = "연결됨" if enabled else "미설정"
+            st.markdown(f"{icon} **{name}**: {status}")
+    else:
+        st.caption("AI 모듈 상태 정보 없음")
+
+    st.caption("최근 AI 호출 이벤트 (최신 10건)")
+    if not ai_activity:
+        st.info("아직 AI 호출 이벤트가 없습니다.")
+        return
+
+    for event in reversed(ai_activity[-10:]):
+        status = event.get("status", "")
+        status_icon = {
+            "START": "🟡",
+            "SUCCESS": "🟢",
+            "ERROR": "🔴",
+            "SKIP": "⚪",
+            "FALLBACK": "🟠",
+        }.get(status, "ℹ️")
+        module = event.get("module", "?")
+        action = event.get("action", "")
+        summary = event.get("summary", "")
+        ts = event.get("timestamp", "")[11:19]
+        confidence = event.get("metadata", {}).get("confidence")
+        conf_text = f" | 신뢰도: {confidence:.0%}" if isinstance(confidence, (float, int)) else ""
+        st.markdown(
+            f"{status_icon} **{ts}** `{module}.{action}` - {status}{conf_text}"
+        )
+        if summary:
+            st.caption(summary)
 
 
 def require_dashboard_auth():
@@ -108,6 +234,8 @@ def main():
     # ========== 핵심 지표 (KPI) ==========
     positions = data.get("positions", {})
     risk = data.get("risk", {})
+    ai_modules = data.get("ai_modules", {})
+    ai_activity = data.get("ai_activity", [])
 
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
 
@@ -133,100 +261,18 @@ def main():
 
     # ---------- 왼쪽: 보유 포지션 & 거래 로그 ----------
     with left_col:
-        st.subheader("보유 포지션")
         open_positions = positions.get("open_positions", [])
-        if open_positions:
-            pos_df = pd.DataFrame(open_positions)
-            display_cols = {
-                "stock_name": "종목명",
-                "stock_code": "종목코드",
-                "qty": "수량",
-                "entry_price": "진입가",
-                "current_price": "현재가",
-                "pnl": "손익(원)",
-                "pnl_pct": "수익률(%)",
-                "stop_loss": "손절가",
-                "take_profit": "익절가",
-                "minutes_held": "보유시간(분)",
-            }
-            available_cols = [c for c in display_cols if c in pos_df.columns]
-            display_df = pos_df[available_cols].rename(
-                columns={c: display_cols[c] for c in available_cols}
-            )
-
-            # 수익률 색상
-            st.dataframe(
-                display_df.style.applymap(
-                    lambda v: "color: red" if isinstance(v, (int, float)) and v < 0
-                    else "color: green" if isinstance(v, (int, float)) and v > 0
-                    else "",
-                    subset=[c for c in ["손익(원)", "수익률(%)"] if c in display_df.columns],
-                ),
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.info("현재 보유 중인 포지션이 없습니다.")
+        render_position_table(open_positions)
 
         # 손익 차트
-        st.subheader("거래 손익 추이")
         closed_trades = positions.get("closed_trades", [])
-        if closed_trades:
-            trades_df = pd.DataFrame(closed_trades)
-            trades_df["cumulative_pnl"] = trades_df["realized_pnl"].cumsum()
-
-            fig = go.Figure()
-            colors = ["green" if v >= 0 else "red" for v in trades_df["realized_pnl"]]
-            fig.add_trace(go.Bar(
-                x=list(range(1, len(trades_df) + 1)),
-                y=trades_df["realized_pnl"],
-                marker_color=colors,
-                name="개별 손익",
-            ))
-            fig.add_trace(go.Scatter(
-                x=list(range(1, len(trades_df) + 1)),
-                y=trades_df["cumulative_pnl"],
-                mode="lines+markers",
-                name="누적 손익",
-                line=dict(color="blue", width=2),
-            ))
-            fig.update_layout(
-                height=350,
-                margin=dict(l=20, r=20, t=30, b=20),
-                xaxis_title="거래 번호",
-                yaxis_title="손익 (원)",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02),
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("아직 청산된 거래가 없습니다.")
+        render_pnl_chart(closed_trades)
 
         # 거래 로그
         st.subheader("실시간 거래 로그")
         if trade_log:
             for entry in reversed(trade_log[-15:]):
-                side = entry.get("side", "")
-                trade = entry.get("trade", {})
-                ts = entry.get("timestamp", "")[:19]
-
-                if side == "BUY":
-                    icon = "🟢"
-                    color = "green"
-                else:
-                    icon = "🔴"
-                    color = "red"
-
-                name = trade.get("stock_name", trade.get("name", "?"))
-                pnl_text = ""
-                if "realized_pnl" in trade:
-                    pnl_text = f" | 손익: {trade['realized_pnl']:+,}원"
-
-                st.markdown(
-                    f"{icon} **{ts}** [{side}] "
-                    f"**{name}** "
-                    f"{trade.get('qty', 0)}주 @ {trade.get('entry_price', trade.get('exit_price', 0)):,}원"
-                    f"{pnl_text}"
-                )
+                st.markdown(_format_trade_entry(entry))
         else:
             st.info("오늘 거래 기록이 없습니다.")
 
@@ -252,6 +298,9 @@ def main():
             )
         else:
             st.info("리스크 데이터 대기 중...")
+
+        st.divider()
+        render_ai_health(ai_modules, ai_activity)
 
         st.divider()
 

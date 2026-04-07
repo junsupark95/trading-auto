@@ -1,7 +1,6 @@
 """로스 카메론 모멘텀 데이 트레이딩 전략 엔진"""
 
 from datetime import datetime
-from loguru import logger
 from config.settings import ross_settings
 from strategy.indicators import TechnicalIndicators
 import pandas as pd
@@ -114,7 +113,7 @@ class RossCameronStrategy:
             reasons.append(f"9EMA({ema9:,.0f}) 위 - 단기 상승세")
         else:
             score -= 0.1
-            reasons.append(f"9EMA 아래 - 약세")
+            reasons.append("9EMA 아래 - 약세")
 
         # 4) 20EMA 확인 (추가 확인)
         ema20 = latest.get("ema_20", 0)
@@ -203,8 +202,6 @@ class RossCameronStrategy:
         4. 시간 제한: 최대 60분 보유
         5. VWAP 하향 돌파 시 청산
         """
-        reasons = []
-
         # 1) 손절
         stop_pct = self.settings.stop_loss_pct
         if current_price <= entry_price * (1 - stop_pct / 100):
