@@ -102,15 +102,15 @@ class AIStockAnalyst:
 
     def analyze_candidates(self, scanner_summary: str,
                            market_data: dict = None) -> dict:
-        """종목 분석 파이프라인: GPT 1차 분석 → Gemini 교차 검증"""
-        # Step 1: GPT 1차 분석
-        gpt_result = self._gpt_analyze(scanner_summary, market_data)
+        """종목 분석 파이프라인: Gemini(무료) 1차 → Gemini 교차 검증"""
+        # Step 1: 1차 분석 (Gemini 우선 → GPT → Claude 순)
+        primary_result = self._primary_analyze(scanner_summary, market_data)
 
         # Step 2: Gemini 교차 검증
-        gemini_result = self._gemini_validate(gpt_result, scanner_summary)
+        gemini_result = self._gemini_validate(primary_result, scanner_summary)
 
         # Step 3: 결과 통합
-        combined = self._combine_results(gpt_result, gemini_result)
+        combined = self._combine_results(primary_result, gemini_result)
 
         logger.info(
             f"AI 종목 분석 완료: "
@@ -118,10 +118,19 @@ class AIStockAnalyst:
         )
         return combined
 
-    def _gpt_analyze(self, scanner_summary: str,
-                     market_data: dict = None) -> dict:
-        """GPT-4 1차 종목 분석"""
-        user_prompt = f"""## 오늘의 갭업 스캐너 결과
+    def _primary_analyze(self, scanner_summary: str, market_data: dict = None) -> dict:
+        """1차 종목 분석: Gemini(무료) → GPT → Claude 순서로 시도"""
+        # 1순위: Gemini (무료)
+        try:
+            return self._gemini_primary_analyze(scanner_summary, market_data)
+        except Exception as e:
+            logger.warning(f"Gemini 1차 분석 실패: {e} → GPT로 대체")
+
+        # 2순위: GPT
+        try:
+            if self.openai_client is None:
+                raise RuntimeError("OPENAI_API_KEY 미설정")
+            user_prompt = f"""## 오늘의 갭업 스캐너 결과
 {scanner_summary}
 
 ## 추가 시장 데이터
@@ -130,9 +139,6 @@ class AIStockAnalyst:
 위 종목들을 로스 카메론 전략 기준으로 분석하고,
 매매 가치가 높은 상위 종목을 선정해주세요.
 """
-        try:
-            if self.openai_client is None:
-                raise RuntimeError("OPENAI_API_KEY 미설정")
             response = self.openai_client.chat.completions.create(
                 model=self.openai_model,
                 messages=[
@@ -148,7 +154,32 @@ class AIStockAnalyst:
             return result
         except Exception as e:
             logger.warning(f"GPT 분석 실패: {e} → Claude로 대체")
-            return self._claude_analyze(scanner_summary, market_data)
+
+        # 3순위: Claude
+        return self._claude_analyze(scanner_summary, market_data)
+
+    def _gemini_primary_analyze(self, scanner_summary: str, market_data: dict = None) -> dict:
+        """Gemini를 사용한 1차 종목 분석 (GPT_ANALYST_PROMPT와 동일 출력 형식)"""
+        if self.gemini_model is None:
+            raise RuntimeError("GOOGLE_API_KEY 미설정")
+
+        prompt = f"""{GPT_ANALYST_PROMPT}
+
+## 오늘의 갭업 스캐너 결과
+{scanner_summary}
+
+## 추가 시장 데이터
+{json.dumps(market_data or {}, ensure_ascii=False, indent=2)}
+
+위 종목들을 로스 카메론 전략 기준으로 분석하고, 매매 가치가 높은 상위 종목을 선정해주세요.
+반드시 JSON 형식으로만 응답하세요. 마크다운 없이 순수 JSON만 출력하세요.
+"""
+        response = self.gemini_model.generate_content(prompt)
+        result = self._parse_json(response.text)
+        if not result.get("selected_stocks"):
+            raise ValueError("Gemini 분석 결과 비어있음")
+        logger.info(f"Gemini 1차 분석 완료: {len(result.get('selected_stocks', []))}개 종목 선정")
+        return result
 
     def _gemini_validate(self, gpt_result: dict,
                          scanner_summary: str) -> dict:
