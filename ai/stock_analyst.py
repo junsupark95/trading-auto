@@ -5,18 +5,11 @@ Gemini가 교차 검증 및 보완 의견을 제시합니다.
 """
 
 import json
-import warnings
 import openai
 import anthropic
+from google import genai as google_genai
 from loguru import logger
 from config.settings import ai_settings
-
-warnings.filterwarnings(
-    "ignore",
-    message=r"(?s).*All support for the `google\.generativeai` package has ended.*",
-    category=FutureWarning,
-)
-import google.generativeai as genai
 
 
 GPT_ANALYST_PROMPT = """당신은 한국 주식시장 전문 데이트레이딩 애널리스트입니다.
@@ -85,11 +78,12 @@ class AIStockAnalyst:
         else:
             logger.warning("OPENAI_API_KEY 미설정: GPT 종목 분석 비활성화")
 
-        self.gemini_model = None
+        # 새 google-genai SDK 사용 (google-generativeai 대체)
+        self.gemini_client = None
         if ai_settings.google_api_key:
-            genai.configure(api_key=ai_settings.google_api_key)
+            self.gemini_client = google_genai.Client(api_key=ai_settings.google_api_key)
         else:
-            logger.warning("GOOGLE_API_KEY 미설정: Gemini 검증 비활성화")
+            logger.warning("GOOGLE_API_KEY 미설정: Gemini 비활성화")
 
         self.claude_client = None
         if ai_settings.anthropic_api_key:
@@ -97,8 +91,6 @@ class AIStockAnalyst:
 
         self.openai_model = ai_settings.openai_model
         self.gemini_model_name = ai_settings.gemini_model
-        if ai_settings.google_api_key:
-            self.gemini_model = genai.GenerativeModel(self.gemini_model_name)
 
     def analyze_candidates(self, scanner_summary: str,
                            market_data: dict = None) -> dict:
@@ -158,11 +150,18 @@ class AIStockAnalyst:
         # 3순위: Claude
         return self._claude_analyze(scanner_summary, market_data)
 
+    def _gemini_call(self, prompt: str) -> str:
+        """새 google-genai SDK로 Gemini 호출 (공통 헬퍼)"""
+        if self.gemini_client is None:
+            raise RuntimeError("GOOGLE_API_KEY 미설정")
+        response = self.gemini_client.models.generate_content(
+            model=self.gemini_model_name,
+            contents=prompt,
+        )
+        return response.text
+
     def _gemini_primary_analyze(self, scanner_summary: str, market_data: dict = None) -> dict:
         """Gemini를 사용한 1차 종목 분석 (GPT_ANALYST_PROMPT와 동일 출력 형식)"""
-        if self.gemini_model is None:
-            raise RuntimeError("GOOGLE_API_KEY 미설정")
-
         prompt = f"""{GPT_ANALYST_PROMPT}
 
 ## 오늘의 갭업 스캐너 결과
@@ -174,15 +173,14 @@ class AIStockAnalyst:
 위 종목들을 로스 카메론 전략 기준으로 분석하고, 매매 가치가 높은 상위 종목을 선정해주세요.
 반드시 JSON 형식으로만 응답하세요. 마크다운 없이 순수 JSON만 출력하세요.
 """
-        response = self.gemini_model.generate_content(prompt)
-        result = self._parse_json(response.text)
+        text = self._gemini_call(prompt)
+        result = self._parse_json(text)
         if not result.get("selected_stocks"):
             raise ValueError("Gemini 분석 결과 비어있음")
         logger.info(f"Gemini 1차 분석 완료: {len(result.get('selected_stocks', []))}개 종목 선정")
         return result
 
-    def _gemini_validate(self, gpt_result: dict,
-                         scanner_summary: str) -> dict:
+    def _gemini_validate(self, gpt_result: dict, scanner_summary: str) -> dict:
         """Gemini 교차 검증"""
         prompt = f"""{GEMINI_VALIDATOR_PROMPT}
 
@@ -195,15 +193,12 @@ class AIStockAnalyst:
 위 종목들에 대해 교차 검증을 수행해주세요.
 """
         try:
-            if self.gemini_model is None:
-                raise RuntimeError("GOOGLE_API_KEY 미설정")
-            response = self.gemini_model.generate_content(prompt)
-            result = self._parse_json(response.text)
+            text = self._gemini_call(prompt)
+            result = self._parse_json(text)
             logger.info("Gemini 교차 검증 완료")
             return result
         except Exception as e:
             logger.warning(f"Gemini 검증 실패: {e} → 검증 생략(전종목 승인)")
-            # Gemini 실패 시 GPT 선정 종목을 그대로 통과
             return {"validations": [], "overall_risk": "Gemini 검증 생략"}
 
     def _claude_analyze(self, scanner_summary: str, market_data: dict = None) -> dict:

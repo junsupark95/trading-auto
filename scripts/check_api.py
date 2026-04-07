@@ -31,12 +31,14 @@ def check_gemini():
         results["gemini"] = "skip"
         return
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        resp = model.generate_content("한국어로 '연결 확인'이라고만 답하세요.")
+        from google import genai
+        client = genai.Client(api_key=key)
+        resp = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents="한국어로 '연결 확인'이라고만 답하세요.",
+        )
         text = resp.text.strip()
-        print(f"  {OK} Gemini 1.5 Flash: 응답 OK → '{text[:40]}'")
+        print(f"  {OK} Gemini 2.0 Flash: 응답 OK → '{text[:40]}'")
         results["gemini"] = "ok"
     except Exception as e:
         print(f"  {FAIL} Gemini: 오류 → {e}")
